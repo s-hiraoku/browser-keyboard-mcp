@@ -1,0 +1,4 @@
+{
+  "name": "browser-keyboard-mcp",
+  "install": "bash .cursor/install.sh"
+}
