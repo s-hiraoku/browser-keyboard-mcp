@@ -1,0 +1,20 @@
+{
+  "name": "browser-keyboard-mcp",
+  "version": "0.1.0",
+  "description": "MCP browser keyboard control with independent key down/up, chords, and timed input sequences.",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "browser-keyboard-mcp": "src/server.js" },
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/*.test.js",
+    "test:e2e": "node --test test/e2e/*.test.js",
+    "check": "node --check src/server.js && node --check src/keyboard.js && node --check src/browser.js && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "playwright": "1.63.0",
+    "zod": "4.5.4"
+  }
+}
