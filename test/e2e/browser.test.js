@@ -70,7 +70,7 @@ test('MCP stdio lists tools, reports validation errors, plays a chord, and can i
   t.after(() => client.close());
   await client.connect(transport);
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 11);
+  assert.equal(tools.length, 15);
   const call = (name, args = {}) => client.callTool({ name, arguments: args });
   const read = result => JSON.parse(result.content[0].text);
   assert.equal((await call('key_down', { key: 'KeyA' })).isError, true);
@@ -93,4 +93,54 @@ test('MCP stdio lists tools, reports validation errors, plays a chord, and can i
   const screenshot = await call('browser_screenshot');
   assert.equal(screenshot.content[0].mimeType, 'image/png');
   assert.equal(read(await call('browser_close')).open, false);
+});
+
+
+test('score and playlist MCP playback expose browser receipt timing and stop safely', async t => {
+  const url = await site(t);
+  const client = new Client({ name: 'music-test', version: '1.0.0' });
+  t.after(() => client.close());
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: ['src/server.js', '--headless'], env: { ...process.env }, stderr: 'pipe' }));
+  const call = (name, args = {}) => client.callTool({ name, arguments: args });
+  const read = r => { assert.ok(!r.isError, JSON.stringify(r)); return JSON.parse(r.content[0].text); };
+  const score = { bpm: 120, mapping: { C4: 'KeyA', E4: 'KeyD' }, notes: [{ pitch: 'C4', beat: 0, duration: 0.2 }, { pitch: 'E4', beat: 0, duration: 0.2 }] };
+  assert.equal(read(await call('score_preview', { score })).events.length, 4);
+  read(await call('browser_open', { url }));
+  const wait = async () => {
+    for (let i = 0; i < 100; i++) {
+      const state = read(await call('browser_status'));
+      if (state.run.status !== 'running') { assert.equal(state.run.status, 'completed'); return state; }
+      await sleep(20);
+    }
+    throw new Error('Playback timed out');
+  };
+  read(await call('score_start', { score, captureTiming: true }));
+  await wait();
+  let timing = read(await call('timing_read'));
+  assert.equal(timing.matched, true);
+  assert.equal(timing.events.length, 4);
+  assert.equal(timing.events[0].atMs, 0);
+  assert.ok(timing.maxRelativeDriftMs >= 0);
+  assert.ok(timing.maxChordSpreadMs >= 0);
+  assert.ok(timing.runId);
+  const events = [{ atMs: 0, key: 'KeyA', type: 'down' }, { atMs: 50, key: 'KeyA', type: 'up' }];
+  const phrase = { durationMs: 100, events };
+  read(await call('playlist_start', { phrases: [phrase, phrase], captureTiming: true }));
+  assert.equal((await wait()).run.eventsCompleted, 4);
+  timing = read(await call('timing_read'));
+  assert.equal(timing.matched, true);
+  assert.ok(timing.events[2].atMs >= 70, 'Explicit phrase duration is preserved');
+  read(await call('playlist_start', { phrases: [{ ...phrase, durationMs: 30000 }, phrase], captureTiming: true }));
+  await sleep(80);
+  const stopped = read(await call('sequence_stop'));
+  assert.equal(stopped.run.status, 'stopped');
+  assert.deepEqual(stopped.heldKeys, []);
+  const before = read(await call('timing_read')).events;
+  await call('key_down', { key: 'KeyA' });
+  await call('key_up', { key: 'KeyA' });
+  assert.deepEqual(read(await call('timing_read')).events, before, 'Capture stops with playback');
+  read(await call('score_start', { score }));
+  await wait();
+  assert.equal(read(await call('timing_read')).enabled, false);
+  assert.deepEqual(read(await call('timing_read')).events, []);
 });

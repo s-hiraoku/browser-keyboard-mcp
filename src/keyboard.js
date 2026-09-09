@@ -33,7 +33,7 @@ export class KeyboardController {
   #run;
   #disposed = false;
 
-  constructor(keyboard) { this.keyboard = keyboard; }
+  constructor(keyboard, onFinish = async () => {}) { this.keyboard = keyboard; this.onFinish = onFinish; }
 
   #serialize(action) {
     const next = this.#queue.then(action);
@@ -109,12 +109,17 @@ export class KeyboardController {
 
   start(events) {
     const parsed = sequenceSchema.parse(events);
+    return this.play({ events: parsed, durationMs: parsed.at(-1).atMs });
+  }
+
+  // Internal entry point: callers must compile and validate the entire timeline first.
+  play({ events: parsed, durationMs }) {
     return this.#serialize(() => {
       this.#assertIdle();
       if (this.#held.size) throw new Error('Release manually held keys before starting a sequence.');
       const run = {
         id: randomUUID(), status: 'running', eventsTotal: parsed.length,
-        eventsCompleted: 0, maxLateMs: 0, elapsedMs: 0, abort: new AbortController(),
+        eventsCompleted: 0, maxLateMs: 0, maxDispatchStartLateMs: 0, elapsedMs: 0, durationMs, abort: new AbortController(),
       };
       this.#run = run;
       run.done = this.#execute(parsed, run);
@@ -129,11 +134,15 @@ export class KeyboardController {
         const delay = event.atMs - (performance.now() - start);
         if (delay > 0) await sleep(delay, undefined, { signal: run.abort.signal });
         run.abort.signal.throwIfAborted();
+        run.maxDispatchStartLateMs = Math.max(run.maxDispatchStartLateMs, performance.now() - start - event.atMs);
         if (event.type === 'down') await this.#down(event.key);
         else await this.#up(event.key);
         run.maxLateMs = Math.max(run.maxLateMs, performance.now() - start - event.atMs);
         run.eventsCompleted++;
       }
+      const remaining = run.durationMs - (performance.now() - start);
+      if (remaining > 0) await sleep(remaining, undefined, { signal: run.abort.signal });
+      run.abort.signal.throwIfAborted();
       run.status = 'completed';
     } catch (error) {
       run.status = run.abort.signal.aborted ? 'stopped' : 'failed';
@@ -143,13 +152,15 @@ export class KeyboardController {
       const result = run.status;
       run.status = 'running';
       try {
-        await this.#release();
+        try { await this.#release(); }
+        finally { await this.onFinish(); }
         run.status = result;
       } catch (error) {
         run.status = 'failed';
         run.error = error.message;
       }
       run.elapsedMs = Math.round(performance.now() - start);
+      run.maxDispatchStartLateMs = Math.round(run.maxDispatchStartLateMs * 100) / 100;
       run.maxLateMs = Math.round(run.maxLateMs * 100) / 100;
     }
   }

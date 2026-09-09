@@ -10,7 +10,7 @@
     "start": "node src/server.js",
     "test": "node --test test/*.test.js",
     "test:e2e": "node --test test/e2e/*.test.js",
-    "check": "node --check src/server.js && node --check src/keyboard.js && node --check src/browser.js && npm test"
+    "check": "node --check src/server.js && node --check src/keyboard.js && node --check src/browser.js && node --check src/music.js && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

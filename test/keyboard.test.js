@@ -138,3 +138,30 @@ test('validation rejects shortcuts, alias keys, excessive and malformed sequence
     assert.equal(sequenceSchema.safeParse(events).success, false);
   }
 });
+
+test('playlist shares one run and stop discards pending phrases including trailing rests', async () => {
+  const { compilePlaylist } = await import('../src/music.js');
+  const { controller, log } = fixture();
+  const phrase = { durationMs: 30, events: [down('KeyA'), up('KeyA', 10)] };
+  await controller.play(compilePlaylist([phrase, phrase]));
+  const state = await finished(controller);
+  assert.equal(state.run.eventsCompleted, 4);
+  assert.ok(state.run.elapsedMs >= 55);
+  assert.ok(state.run.maxDispatchStartLateMs >= 0);
+  assert.deepEqual(log, [['down', 'KeyA'], ['up', 'KeyA'], ['down', 'KeyA'], ['up', 'KeyA']]);
+  await controller.play(compilePlaylist([{ ...phrase, durationMs: 30000 }, phrase]));
+  await sleep(20);
+  await controller.stop();
+  assert.equal(controller.state.run.status, 'stopped');
+  assert.equal(controller.state.run.eventsCompleted, 2);
+  assert.deepEqual(controller.state.heldKeys, []);
+});
+
+test('completion callback still runs when release cleanup fails', async () => {
+  let finished = false;
+  const controller = new KeyboardController({ async down() {}, async up() { throw new Error('lost transport'); } }, async () => { finished = true; });
+  await controller.start([down('KeyA'), up('KeyA')]);
+  await sleep(60);
+  assert.equal(controller.state.run.status, 'failed');
+  assert.equal(finished, true);
+});

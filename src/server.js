@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { BrowserSession } from './browser.js';
+import { playlistSchema, compilePlaylist, scoreSchema, compileScore } from './music.js';
 import { keySchema, sequenceSchema } from './keyboard.js';
 
 const session = new BrowserSession({ headless: process.argv.includes('--headless') });
@@ -41,6 +42,16 @@ tool('sequence_start', 'Start up to 512 timed key events, with absolute offsets 
   { events: sequenceSchema }, async ({ events }) => {
     session.requirePage(); return textResult(await session.keys.start(events));
   });
+tool('playlist_start', 'Validate and play up to 20 phrases on one clock (8192 events, 10 minutes total). Each phrase is balanced and at most 30 seconds. Returns immediately. Optional timing capture records trusted key codes, never text.',
+  { phrases: playlistSchema, captureTiming: z.boolean().default(false) }, async ({ phrases, captureTiming }) =>
+    textResult(await session.play(compilePlaylist(phrases), captureTiming)));
+tool('score_preview', 'Convert notes in quarter-note beats to physical key events without playing. Explicit pitch-to-key mapping; rejects missing mappings and overlapping notes sharing a key.',
+  { score: scoreSchema }, async ({ score }) => textResult(compileScore(score)), true);
+tool('score_start', 'Validate and play a score of up to 4096 notes / 10 minutes. Explicit mapping, BPM and octaveShift. No audio synthesis; sends browser keys.',
+  { score: scoreSchema, captureTiming: z.boolean().default(false) }, async ({ score, captureTiming }) =>
+    textResult(await session.play(compileScore(score), captureTiming)));
+tool('timing_read', 'Read optional browser receipt timings from the latest playlist/score. Times are relative to the first captured event, not audio latency. Avoid physical typing during measurement.',
+  {}, async () => textResult(await session.timing()), true);
 tool('chord', 'Start a chord with overlapping keys, releasing all after durationMs. Returns immediately. Check browser_status for completion.',
   { keys: z.array(keySchema).min(1).max(10).refine(keys => new Set(keys).size === keys.length, 'Keys must be unique.'), durationMs: z.number().int().min(1).max(30000).default(500) }, async ({ keys, durationMs }) => {
     session.requirePage();
