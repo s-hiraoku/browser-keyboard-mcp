@@ -13,7 +13,7 @@
     "check": "node --check src/server.js && node --check src/keyboard.js && node --check src/browser.js && node --check src/music.js && npm test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "playwright": "1.63.0",
     "zod": "4.6.1"
   }
